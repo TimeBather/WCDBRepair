@@ -19,6 +19,7 @@ struct Options {
     std::string command;
     std::string dbPath;
     bool showProgress = true;
+    bool englishOutput = true;
 
     bool hasKey = false;
     std::vector<unsigned char> keyBytes;
@@ -28,14 +29,17 @@ struct Options {
     bool hasKdfIter = false;
     int kdfIter = 0;
     std::string cipherHmacAlgorithm; // empty means not set
+
+    bool sqlTrace = true;
+    bool fullSqlTrace = true;
 };
 
 static void printUsage()
 {
     std::fprintf(stderr,
-                 "WCDB 修复工具 (Windows)\n"
+                 "WCDB Repair Tool (Windows)\n"
                  "\n"
-                 "用法:\n"
+                 "Usage:\n"
                  "  wcdb-repair check  <dbPath>\n"
                  "  wcdb-repair backup <dbPath>\n"
                  "  wcdb-repair repair <dbPath>\n"
@@ -44,15 +48,18 @@ static void printUsage()
                  "      [--cipher-version <default|1|2|3|4>]\n"
                  "      [--kdf-iter <n>]\n"
                  "      [--cipher-hmac-algorithm <name>]\n"
+                  "      [--no-sql-trace]\n"
+                  "      [--no-full-sql-trace]\n"
                  "      [--no-progress]\n"
                  "  wcdb-repair deposit <dbPath>\n"
                  "  wcdb-repair contains-deposited <dbPath>\n"
                  "  wcdb-repair remove-deposited <dbPath>\n"
                  "\n"
-                 "说明:\n"
-                 "  - repair 会调用 WCDB 的 Database::retrieve() 进行修复。\n"
-                 "  - 若数据库为加密库，可使用 --key-hex 指定密钥（十六进制）。\n"
-                 "  - 如遇到非默认 SQLCipher 参数（例如 kdf_iter=4000、cipher_hmac_algorithm=HMAC_SHA1），可通过对应参数指定。\n");
+                 "Notes:\n"
+                 "  - repair calls WCDB Database::retrieve().\n"
+                 "  - For encrypted DB, use --key-hex.\n"
+                 "  - For non-default SQLCipher settings (e.g. kdf_iter=4000, cipher_hmac_algorithm=HMAC_SHA1), set flags accordingly.\n"
+                 "  - SQL tracing is enabled by default; disable with --no-sql-trace.\n");
 }
 
 static bool isHexChar(char c)
@@ -159,6 +166,14 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
             opt.showProgress = false;
             continue;
         }
+        if (a == "--no-sql-trace") {
+            opt.sqlTrace = false;
+            continue;
+        }
+        if (a == "--no-full-sql-trace") {
+            opt.fullSqlTrace = false;
+            continue;
+        }
         if (a == "--key-hex") {
             if (i + 1 >= argv.size())
                 return false;
@@ -212,6 +227,39 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
     }
 
     return true;
+}
+
+static void logState(const char* state, const std::string& detail = std::string())
+{
+    if (detail.empty()) {
+        std::printf("STATE=%s\n", state);
+    } else {
+        std::printf("STATE=%s detail=%s\n", state, detail.c_str());
+    }
+    std::fflush(stdout);
+}
+
+static void enableSqlTraceIfNeeded(WCDB::Database& db, const Options& opt)
+{
+    if (!opt.sqlTrace)
+        return;
+    db.setFullSQLTraceEnable(opt.fullSqlTrace);
+    db.traceSQL([](long tag,
+                   const WCDB::UnsafeStringView& path,
+                   const void* handleIdentifier,
+                   const WCDB::UnsafeStringView& sql,
+                   const WCDB::UnsafeStringView& info) {
+        // English, single-line logs for easy grepping/parsing.
+        std::printf("SQL tag=%ld handle=%p path=%s sql=%s",
+                    tag,
+                    handleIdentifier,
+                    path.data(),
+                    sql.data());
+        if (info.length() > 0) {
+            std::printf(" info=%s", info.data());
+        }
+        std::printf("\n");
+    });
 }
 
 static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt)
@@ -281,42 +329,57 @@ static int run(const std::vector<std::string>& argv)
         return 0;
     }
 
+    logState("INIT");
     WCDB::Database db(opt.dbPath);
+    logState("DATABASE_CREATED", opt.dbPath);
+
+    // Enable SQL trace early. (Full SQL trace is enabled by default.)
+    logState("SQL_TRACE_SETUP");
+    enableSqlTraceIfNeeded(db, opt);
+
     // Apply SQLCipher pragmas first, so they take effect before the key is used.
+    logState("SQLCIPHER_PRAGMA_SETUP");
     applySqlcipherPragmasIfNeeded(db, opt);
+    logState("SQLCIPHER_KEY_SETUP");
     applyCipherIfNeeded(db, opt);
 
     if (opt.command == "check") {
+        logState("CHECK_START");
         bool corrupted = db.checkIfCorrupted();
-        std::printf("corrupted=%s\n", corrupted ? "true" : "false");
+        std::printf("RESULT=check corrupted=%s\n", corrupted ? "true" : "false");
         return corrupted ? 1 : 0;
     }
 
     if (opt.command == "backup") {
+        logState("BACKUP_START");
         bool ok = db.backup();
-        std::printf("backup=%s\n", ok ? "ok" : "failed");
+        std::printf("RESULT=backup ok=%s\n", ok ? "true" : "false");
         return ok ? 0 : 1;
     }
 
     if (opt.command == "deposit") {
+        logState("DEPOSIT_START");
         bool ok = db.deposit();
-        std::printf("deposit=%s\n", ok ? "ok" : "failed");
+        std::printf("RESULT=deposit ok=%s\n", ok ? "true" : "false");
         return ok ? 0 : 1;
     }
 
     if (opt.command == "contains-deposited") {
+        logState("CONTAINS_DEPOSITED_START");
         bool yes = db.containsDeposited();
-        std::printf("containsDeposited=%s\n", yes ? "true" : "false");
+        std::printf("RESULT=containsDeposited value=%s\n", yes ? "true" : "false");
         return yes ? 0 : 1;
     }
 
     if (opt.command == "remove-deposited") {
+        logState("REMOVE_DEPOSITED_START");
         bool ok = db.removeDeposited();
-        std::printf("removeDeposited=%s\n", ok ? "ok" : "failed");
+        std::printf("RESULT=removeDeposited ok=%s\n", ok ? "true" : "false");
         return ok ? 0 : 1;
     }
 
     if (opt.command == "repair") {
+        logState("REPAIR_START");
         auto lastPrint = std::chrono::steady_clock::now();
         double score = db.retrieve([&](double progress, double /*increment*/) -> bool {
             if (!opt.showProgress)
@@ -325,11 +388,12 @@ static int run(const std::vector<std::string>& argv)
             if (now - lastPrint < std::chrono::milliseconds(250))
                 return true;
             lastPrint = now;
-            std::printf("progress=%.4f\n", progress);
+            std::printf("PROGRESS=%.6f\n", progress);
             std::fflush(stdout);
             return true;
         });
-        std::printf("repairScore=%.6f\n", score);
+        logState("REPAIR_DONE");
+        std::printf("RESULT=repair score=%.6f ok=%s\n", score, score > 0 ? "true" : "false");
         return score > 0 ? 0 : 1;
     }
 
