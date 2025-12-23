@@ -40,6 +40,18 @@ struct Options {
     bool errorTrace = true; // global error tracing
 };
 
+template <typename PriorityEnum>
+static constexpr auto preferHigherPriority(int) -> decltype(PriorityEnum::Higher, PriorityEnum::Higher)
+{
+    return PriorityEnum::Higher;
+}
+
+template <typename PriorityEnum>
+static constexpr auto preferHigherPriority(...) -> decltype(PriorityEnum::High, PriorityEnum::High)
+{
+    return PriorityEnum::High;
+}
+
 static void printUsage()
 {
     std::fprintf(stderr,
@@ -374,7 +386,7 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
                      return ok;
                  },
                  nullptr,
-                 WCDB::Database::Priority::High);
+                 preferHigherPriority<WCDB::Database::Priority>(0));
 }
 
 static void applyCipherIfNeeded(WCDB::Database& db, const Options& opt)
