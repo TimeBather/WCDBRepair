@@ -36,6 +36,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(wcdb)
 
+# ---- Patch WCDB configs priority (BasicConfig) ----
+# User requirement:
+# - Remove the original BasicConfigName entry
+# - Re-add it with priority = std::numeric_limits<int>::min() + 100
+# This makes BasicConfig run a bit later than "Higher" (min+1).
+set(_wcdb_commoncore_cpp "${wcdb_SOURCE_DIR}/src/common/core/CommonCore.cpp")
+if (EXISTS "${_wcdb_commoncore_cpp}")
+  file(READ "${_wcdb_commoncore_cpp}" _wcdb_commoncore_content)
+  set(_wcdb_commoncore_old "  { StringView(BasicConfigName), std::make_shared<BasicConfig>(), Configs::Priority::Higher },")
+  set(_wcdb_commoncore_new "  { StringView(BasicConfigName), std::make_shared<BasicConfig>(), std::numeric_limits<int>::min() + 100 },")
+  string(REPLACE "${_wcdb_commoncore_old}" "${_wcdb_commoncore_new}" _wcdb_commoncore_patched "${_wcdb_commoncore_content}")
+  if (NOT _wcdb_commoncore_patched STREQUAL _wcdb_commoncore_content)
+    file(WRITE "${_wcdb_commoncore_cpp}" "${_wcdb_commoncore_patched}")
+  endif()
+endif()
+
 # WCDB's CMake entry is under src/
 add_subdirectory("${wcdb_SOURCE_DIR}/src" "${wcdb_BINARY_DIR}/wcdb-src")
 

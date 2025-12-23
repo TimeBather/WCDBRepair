@@ -40,18 +40,6 @@ struct Options {
     bool errorTrace = true; // global error tracing
 };
 
-template <typename PriorityEnum>
-static constexpr auto preferHigherPriority(int) -> decltype(PriorityEnum::Higher, PriorityEnum::Higher)
-{
-    return PriorityEnum::Higher;
-}
-
-template <typename PriorityEnum>
-static constexpr auto preferHigherPriority(...) -> decltype(PriorityEnum::High, PriorityEnum::High)
-{
-    return PriorityEnum::High;
-}
-
 static void printUsage()
 {
     std::fprintf(stderr,
@@ -360,7 +348,7 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
     if (!needKdfIter && !needHmacAlg && !needDefaultKdfAlg && !needCipher)
         return;
 
-    // Use Highest to make sure cipher-related pragmas are applied before normal operations.
+    // Note: priority is controlled by WCDB::Configs::Priority (not Database::Priority).
     db.setConfig("wcdbrepair.sqlcipher",
                  [=](WCDB::Handle& handle) -> bool {
                      bool ok = true;
@@ -386,7 +374,7 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
                      return ok;
                  },
                  nullptr,
-                 preferHigherPriority<WCDB::Database::Priority>(0));
+                 WCDB::Configs::Priority::Higher);
 }
 
 static void applyCipherIfNeeded(WCDB::Database& db, const Options& opt)
