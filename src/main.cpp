@@ -1,4 +1,5 @@
 #include "WCDBCpp.h"
+#include "Configs.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -374,7 +375,7 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
                      return ok;
                  },
                  nullptr,
-                 WCDB::Configs::Priority::Higher);
+                 static_cast<WCDB::Database::Priority>(WCDB::Configs::Priority::Higher));
 }
 
 static void applyCipherIfNeeded(WCDB::Database& db, const Options& opt)
