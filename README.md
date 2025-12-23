@@ -9,7 +9,9 @@ Based on [WCDB C++ Corruption/Backup/Repair](https://github.com/Tencent/wcdb/wik
 - **Repair**: `repair` (`Database::retrieve()` with progress + score)
 - **Deposit & cleanup**: `deposit` / `contains-deposited` / `remove-deposited`
 - **Encrypted DB**: `--key-hex` / `--cipher-page-size` / `--cipher-version`
+- **Plaintext key**: `--key` (ASCII/UTF-8)
 - **SQLCipher compatibility pragmas**: `--kdf-iter` / `--cipher-hmac-algorithm`
+- **More SQLCipher params**: `--cipher-default-kdf-algorithm` / `--cipher`
 - **SQL trace**: enabled by default (disable via `--no-sql-trace`)
 
 ## Build locally (Windows)
@@ -34,8 +36,14 @@ cmake --build build --config Release --parallel
 # Encrypted DB repair (hex key)
 .\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key-hex 001122AABBCC --cipher-version 4 --cipher-page-size 4096
 
+# Encrypted DB repair (plaintext key)
+.\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key "my-plaintext-key"
+
 # Encrypted DB with non-default SQLCipher params
 .\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key-hex 001122AABBCC --kdf-iter 4000 --cipher-hmac-algorithm HMAC_SHA1
+
+# SQLCipher: custom algorithms/cipher
+.\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key-hex 001122AABBCC --cipher-default-kdf-algorithm PBKDF2_HMAC_SHA512 --cipher aes-256-cbc
 
 # Deposit (when repair fails or you want to postpone repair)
 .\wcdb-repair.exe deposit "C:\path\to\db.sqlite"

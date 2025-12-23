@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -23,12 +24,15 @@ struct Options {
 
     bool hasKey = false;
     std::vector<unsigned char> keyBytes;
+    std::string keyPreview; // printable preview for logs (may be masked)
     int cipherPageSize = 4096;
     WCDB::Database::CipherVersion cipherVersion = WCDB::Database::CipherVersion::DefaultVersion;
 
     bool hasKdfIter = false;
     int kdfIter = 0;
     std::string cipherHmacAlgorithm; // empty means not set
+    std::string cipherDefaultKdfAlgorithm; // e.g. PBKDF2_HMAC_SHA512
+    std::string cipher; // e.g. aes-256-cbc
 
     bool sqlTrace = true;
     bool fullSqlTrace = true;
@@ -46,8 +50,11 @@ static void printUsage()
                  "      [--key-hex <hex>]\n"
                  "      [--cipher-page-size <n>]\n"
                  "      [--cipher-version <default|1|2|3|4>]\n"
+                  "      [--key <ascii>]\n"
                  "      [--kdf-iter <n>]\n"
                  "      [--cipher-hmac-algorithm <name>]\n"
+                  "      [--cipher-default-kdf-algorithm <name>]\n"
+                  "      [--cipher <name>]\n"
                   "      [--no-sql-trace]\n"
                   "      [--no-full-sql-trace]\n"
                  "      [--no-progress]\n"
@@ -57,7 +64,7 @@ static void printUsage()
                  "\n"
                  "Notes:\n"
                  "  - repair calls WCDB Database::retrieve().\n"
-                 "  - For encrypted DB, use --key-hex.\n"
+                 "  - For encrypted DB, use --key-hex or --key.\n"
                  "  - For non-default SQLCipher settings (e.g. kdf_iter=4000, cipher_hmac_algorithm=HMAC_SHA1), set flags accordingly.\n"
                  "  - SQL tracing is enabled by default; disable with --no-sql-trace.\n");
 }
@@ -102,6 +109,25 @@ static bool parseHex(const std::string& hex, std::vector<unsigned char>& out)
         out.push_back(static_cast<unsigned char>((hi << 4) | lo));
     }
     return true;
+}
+
+static std::string toVisibleKeyPreview(const std::vector<unsigned char>& bytes)
+{
+    // Convert bytes into "visible" ASCII; non-printable -> '?'
+    std::string s;
+    s.reserve(bytes.size());
+    for (unsigned char c : bytes) {
+        if (c >= 0x20 && c <= 0x7E) {
+            s.push_back(static_cast<char>(c));
+        } else {
+            s.push_back('?');
+        }
+    }
+    // Mask long previews to reduce accidental leakage.
+    if (s.size() > 16) {
+        s.replace(16, std::string::npos, "***");
+    }
+    return s;
 }
 
 static bool parseInt(const std::string& s, int& out)
@@ -174,6 +200,18 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
             opt.fullSqlTrace = false;
             continue;
         }
+        if (a == "--key") {
+            if (i + 1 >= argv.size())
+                return false;
+            const std::string& k = argv[i + 1];
+            opt.hasKey = true;
+            opt.keyBytes.assign(reinterpret_cast<const unsigned char*>(k.data()),
+                                reinterpret_cast<const unsigned char*>(k.data()) + k.size());
+            // For --key (ASCII/UTF-8), keep a masked preview for logs.
+            opt.keyPreview = toVisibleKeyPreview(opt.keyBytes);
+            i++;
+            continue;
+        }
         if (a == "--key-hex") {
             if (i + 1 >= argv.size())
                 return false;
@@ -182,6 +220,7 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
                 return false;
             opt.hasKey = true;
             opt.keyBytes = std::move(bytes);
+            opt.keyPreview = toVisibleKeyPreview(opt.keyBytes);
             i++;
             continue;
         }
@@ -220,6 +259,20 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
             if (i + 1 >= argv.size())
                 return false;
             opt.cipherHmacAlgorithm = argv[i + 1];
+            i++;
+            continue;
+        }
+        if (a == "--cipher-default-kdf-algorithm") {
+            if (i + 1 >= argv.size())
+                return false;
+            opt.cipherDefaultKdfAlgorithm = argv[i + 1];
+            i++;
+            continue;
+        }
+        if (a == "--cipher") {
+            if (i + 1 >= argv.size())
+                return false;
+            opt.cipher = argv[i + 1];
             i++;
             continue;
         }
@@ -266,13 +319,25 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
 {
     const bool needKdfIter = opt.hasKdfIter;
     const bool needHmacAlg = !opt.cipherHmacAlgorithm.empty();
-    if (!needKdfIter && !needHmacAlg)
+    const bool needDefaultKdfAlg = !opt.cipherDefaultKdfAlgorithm.empty();
+    const bool needCipher = !opt.cipher.empty();
+    if (!needKdfIter && !needHmacAlg && !needDefaultKdfAlg && !needCipher)
         return;
 
     // Use Highest to make sure cipher-related pragmas are applied before normal operations.
     db.setConfig("wcdbrepair.sqlcipher",
                  [=](WCDB::Handle& handle) -> bool {
                      bool ok = true;
+                     if (needDefaultKdfAlg) {
+                         ok = ok && handle.execute(WCDB::StatementPragma()
+                                                       .pragma(WCDB::Pragma("cipher_default_kdf_algorithm"))
+                                                       .to(opt.cipherDefaultKdfAlgorithm.c_str()));
+                     }
+                     if (needCipher) {
+                         ok = ok && handle.execute(WCDB::StatementPragma()
+                                                       .pragma(WCDB::Pragma::cipher())
+                                                       .to(opt.cipher.c_str()));
+                     }
                      if (needKdfIter) {
                          ok = ok && handle.execute(
                                        WCDB::StatementPragma().pragma(WCDB::Pragma("kdf_iter")).to(opt.kdfIter));
@@ -341,6 +406,9 @@ static int run(const std::vector<std::string>& argv)
     logState("SQLCIPHER_PRAGMA_SETUP");
     applySqlcipherPragmasIfNeeded(db, opt);
     logState("SQLCIPHER_KEY_SETUP");
+    if (opt.hasKey && !opt.keyPreview.empty()) {
+        logState("KEY_PREVIEW", opt.keyPreview);
+    }
     applyCipherIfNeeded(db, opt);
 
     if (opt.command == "check") {
