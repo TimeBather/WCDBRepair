@@ -9,6 +9,7 @@
 - **修复**：`repair`（对应 `Database::retrieve()`，输出修复进度与 score）
 - **转存/清理转存**：`deposit` / `contains-deposited` / `remove-deposited`
 - **加密库支持**：`--key-hex` / `--cipher-page-size` / `--cipher-version`
+- **SQLCipher 兼容参数**：`--kdf-iter` / `--cipher-hmac-algorithm`
 
 ## 本地编译（Windows）
 
@@ -31,6 +32,9 @@ cmake --build build --config Release --parallel
 
 # 加密库修复（示例：hex key）
 .\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key-hex 001122AABBCC --cipher-version 4 --cipher-page-size 4096
+
+# 加密库修复（非默认 SQLCipher 参数示例）
+.\wcdb-repair.exe repair "C:\path\to\db.sqlite" --key-hex 001122AABBCC --kdf-iter 4000 --cipher-hmac-algorithm HMAC_SHA1
 
 # 转存（修复失败或暂时不修复时使用）
 .\wcdb-repair.exe deposit "C:\path\to\db.sqlite"

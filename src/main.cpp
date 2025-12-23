@@ -24,6 +24,10 @@ struct Options {
     std::vector<unsigned char> keyBytes;
     int cipherPageSize = 4096;
     WCDB::Database::CipherVersion cipherVersion = WCDB::Database::CipherVersion::DefaultVersion;
+
+    bool hasKdfIter = false;
+    int kdfIter = 0;
+    std::string cipherHmacAlgorithm; // empty means not set
 };
 
 static void printUsage()
@@ -34,14 +38,21 @@ static void printUsage()
                  "用法:\n"
                  "  wcdb-repair check  <dbPath>\n"
                  "  wcdb-repair backup <dbPath>\n"
-                 "  wcdb-repair repair <dbPath> [--key-hex <hex>] [--cipher-page-size <n>] [--cipher-version <default|1|2|3|4>] [--no-progress]\n"
+                 "  wcdb-repair repair <dbPath>\n"
+                 "      [--key-hex <hex>]\n"
+                 "      [--cipher-page-size <n>]\n"
+                 "      [--cipher-version <default|1|2|3|4>]\n"
+                 "      [--kdf-iter <n>]\n"
+                 "      [--cipher-hmac-algorithm <name>]\n"
+                 "      [--no-progress]\n"
                  "  wcdb-repair deposit <dbPath>\n"
                  "  wcdb-repair contains-deposited <dbPath>\n"
                  "  wcdb-repair remove-deposited <dbPath>\n"
                  "\n"
                  "说明:\n"
                  "  - repair 会调用 WCDB 的 Database::retrieve() 进行修复。\n"
-                 "  - 若数据库为加密库，可使用 --key-hex 指定密钥（十六进制）。\n");
+                 "  - 若数据库为加密库，可使用 --key-hex 指定密钥（十六进制）。\n"
+                 "  - 如遇到非默认 SQLCipher 参数（例如 kdf_iter=4000、cipher_hmac_algorithm=HMAC_SHA1），可通过对应参数指定。\n");
 }
 
 static bool isHexChar(char c)
@@ -179,10 +190,54 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
             i++;
             continue;
         }
+        if (a == "--kdf-iter") {
+            if (i + 1 >= argv.size())
+                return false;
+            int v = 0;
+            if (!parseInt(argv[i + 1], v))
+                return false;
+            opt.hasKdfIter = true;
+            opt.kdfIter = v;
+            i++;
+            continue;
+        }
+        if (a == "--cipher-hmac-algorithm") {
+            if (i + 1 >= argv.size())
+                return false;
+            opt.cipherHmacAlgorithm = argv[i + 1];
+            i++;
+            continue;
+        }
         return false;
     }
 
     return true;
+}
+
+static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt)
+{
+    const bool needKdfIter = opt.hasKdfIter;
+    const bool needHmacAlg = !opt.cipherHmacAlgorithm.empty();
+    if (!needKdfIter && !needHmacAlg)
+        return;
+
+    // Use Highest to make sure cipher-related pragmas are applied before normal operations.
+    db.setConfig("wcdbrepair.sqlcipher",
+                 [=](WCDB::Handle& handle) -> bool {
+                     bool ok = true;
+                     if (needKdfIter) {
+                         ok = ok && handle.execute(
+                                       WCDB::StatementPragma().pragma(WCDB::Pragma("kdf_iter")).to(opt.kdfIter));
+                     }
+                     if (needHmacAlg) {
+                         ok = ok && handle.execute(WCDB::StatementPragma()
+                                                       .pragma(WCDB::Pragma::cipherHmacAlgorithm())
+                                                       .to(opt.cipherHmacAlgorithm.c_str()));
+                     }
+                     return ok;
+                 },
+                 nullptr,
+                 WCDB::Database::Priority::Highest);
 }
 
 static void applyCipherIfNeeded(WCDB::Database& db, const Options& opt)
@@ -227,6 +282,8 @@ static int run(const std::vector<std::string>& argv)
     }
 
     WCDB::Database db(opt.dbPath);
+    // Apply SQLCipher pragmas first, so they take effect before the key is used.
+    applySqlcipherPragmasIfNeeded(db, opt);
     applyCipherIfNeeded(db, opt);
 
     if (opt.command == "check") {
