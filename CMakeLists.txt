@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Workaround for WCDB enabling ASM_MASM on Windows:
+# With CMP0091 NEW, CMake may try to apply MSVC runtime library selection
+# to ASM targets, which fails at generate time. Set the policy before the
+# first project() to make it effective.
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 OLD)
+endif()
+# Also clear the cache variable to avoid accidental initialization.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "" CACHE STRING "Do not use MSVC_RUNTIME_LIBRARY abstraction" FORCE)
+
 project(WCDBRepairTool VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 14)
@@ -7,14 +17,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
-
-# WCDB on Windows enables ASM_MASM internally.
-# CMake's MSVC runtime abstraction (CMP0091 NEW) can wrongly apply runtime selection
-# to the ASM compiler, causing generation to fail. Force CMP0091 to OLD so WCDB
-# controls /MD vs /MT via explicit compile options instead.
-if(POLICY CMP0091)
-  cmake_policy(SET CMP0091 OLD)
-endif()
 
 # ---- WCDB (FetchContent) ----
 set(SKIP_WCONAN ON CACHE BOOL "Skip wconan" FORCE)
