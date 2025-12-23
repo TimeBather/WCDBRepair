@@ -374,7 +374,7 @@ static void applySqlcipherPragmasIfNeeded(WCDB::Database& db, const Options& opt
                      return ok;
                  },
                  nullptr,
-                 WCDB::Database::Priority::Highest);
+                 WCDB::Database::Priority::High);
 }
 
 static void applyCipherIfNeeded(WCDB::Database& db, const Options& opt)
