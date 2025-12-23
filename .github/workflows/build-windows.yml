@@ -11,12 +11,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure (Release)
         run: >
           cmake -S . -B build
           -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          -DCMAKE_C_COMPILER=cl
+          -DCMAKE_CXX_COMPILER=cl
 
       - name: Build
         run: cmake --build build --config Release --parallel
