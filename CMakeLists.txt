@@ -8,16 +8,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
-# Prefer static runtime on Windows to match WCDB's prebuilt libs.
-# NOTE: Do NOT use CMAKE_MSVC_RUNTIME_LIBRARY here because WCDB enables ASM_MASM,
-# and CMake may try to apply MSVC runtime settings to ASM which will fail.
-if(MSVC)
-  foreach(lang C CXX)
-    set(CMAKE_${lang}_FLAGS_DEBUG "${CMAKE_${lang}_FLAGS_DEBUG} /MTd")
-    set(CMAKE_${lang}_FLAGS_RELEASE "${CMAKE_${lang}_FLAGS_RELEASE} /MT")
-    set(CMAKE_${lang}_FLAGS_RELWITHDEBINFO "${CMAKE_${lang}_FLAGS_RELWITHDEBINFO} /MT")
-    set(CMAKE_${lang}_FLAGS_MINSIZEREL "${CMAKE_${lang}_FLAGS_MINSIZEREL} /MT")
-  endforeach()
+# WCDB on Windows enables ASM_MASM internally.
+# CMake's MSVC runtime abstraction (CMP0091 NEW) can wrongly apply runtime selection
+# to the ASM compiler, causing generation to fail. Force CMP0091 to OLD so WCDB
+# controls /MD vs /MT via explicit compile options instead.
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 OLD)
 endif()
 
 # ---- WCDB (FetchContent) ----
