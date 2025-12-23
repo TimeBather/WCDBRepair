@@ -36,6 +36,8 @@ struct Options {
 
     bool sqlTrace = true;
     bool fullSqlTrace = true;
+
+    bool errorTrace = true; // global error tracing
 };
 
 static void printUsage()
@@ -57,6 +59,7 @@ static void printUsage()
                   "      [--cipher <name>]\n"
                   "      [--no-sql-trace]\n"
                   "      [--no-full-sql-trace]\n"
+                  "      [--no-error-trace]\n"
                  "      [--no-progress]\n"
                  "  wcdb-repair deposit <dbPath>\n"
                  "  wcdb-repair contains-deposited <dbPath>\n"
@@ -200,6 +203,10 @@ static bool parseArgs(const std::vector<std::string>& argv, Options& opt)
             opt.fullSqlTrace = false;
             continue;
         }
+        if (a == "--no-error-trace") {
+            opt.errorTrace = false;
+            continue;
+        }
         if (a == "--key") {
             if (i + 1 >= argv.size())
                 return false;
@@ -290,6 +297,23 @@ static void logState(const char* state, const std::string& detail = std::string(
         std::printf("STATE=%s detail=%s\n", state, detail.c_str());
     }
     std::fflush(stdout);
+}
+
+static void enableGlobalErrorTraceIfNeeded(const Options& opt)
+{
+    if (!opt.errorTrace)
+        return;
+    WCDB::Database::globalTraceError([](const WCDB::Error& error) {
+        // Keep it one-line, English, parse-friendly.
+        const auto level = WCDB::Error::levelName(error.level);
+        const auto code = WCDB::Error::codeName(error.code());
+        std::printf("ERROR level=%s code=%s path=%s sql=%s message=%s\n",
+                    level ? level : "UNKNOWN",
+                    code ? code : "UNKNOWN",
+                    error.getPath().data(),
+                    error.getSQL().data(),
+                    error.getMessage().data());
+    });
 }
 
 static void enableSqlTraceIfNeeded(WCDB::Database& db, const Options& opt)
@@ -395,6 +419,8 @@ static int run(const std::vector<std::string>& argv)
     }
 
     logState("INIT");
+    logState("GLOBAL_ERROR_TRACE_SETUP");
+    enableGlobalErrorTraceIfNeeded(opt);
     WCDB::Database db(opt.dbPath);
     logState("DATABASE_CREATED", opt.dbPath);
 
