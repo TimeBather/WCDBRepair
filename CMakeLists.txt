@@ -22,7 +22,9 @@ include(FetchContent)
 set(SKIP_WCONAN ON CACHE BOOL "Skip wconan" FORCE)
 set(WCDB_CPP ON CACHE BOOL "Build WCDB C++ interface" FORCE)
 set(WCDB_BRIDGE OFF CACHE BOOL "Disable bridge" FORCE)
-set(WCDB_ZSTD ON CACHE BOOL "Build WCDB with zstd" FORCE)
+# zstd 在 Windows/MSVC 下会启用 .S 汇编实现，容易在 CI 环境里失败（缺对象文件/LNK1181）。
+# 修复工具本身不依赖 zstd，可直接关闭以提升构建稳定性。
+set(WCDB_ZSTD OFF CACHE BOOL "Build WCDB with zstd" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libs" FORCE)
 set(TARGET_NAME wcdb CACHE STRING "WCDB target name" FORCE)
 

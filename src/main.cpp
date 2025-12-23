@@ -201,9 +201,14 @@ static std::string utf8FromWide(const wchar_t* w)
     int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
     if (len <= 0)
         return {};
+    // len includes the trailing '\0' when cchWideChar == -1
     std::string out;
-    out.resize(static_cast<size_t>(len - 1));
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), len, nullptr, nullptr);
+    out.resize(static_cast<size_t>(len), '\0');
+    // NOTE: In C++14, std::string::data() returns const char*, so use &out[0].
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, &out[0], len, nullptr, nullptr);
+    if (!out.empty()) {
+        out.pop_back(); // remove trailing '\0'
+    }
     return out;
 }
 #endif
