@@ -9,8 +9,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(FetchContent)
 
 # Prefer static runtime on Windows to match WCDB's prebuilt libs.
+# NOTE: Do NOT use CMAKE_MSVC_RUNTIME_LIBRARY here because WCDB enables ASM_MASM,
+# and CMake may try to apply MSVC runtime settings to ASM which will fail.
 if(MSVC)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  foreach(lang C CXX)
+    set(CMAKE_${lang}_FLAGS_DEBUG "${CMAKE_${lang}_FLAGS_DEBUG} /MTd")
+    set(CMAKE_${lang}_FLAGS_RELEASE "${CMAKE_${lang}_FLAGS_RELEASE} /MT")
+    set(CMAKE_${lang}_FLAGS_RELWITHDEBINFO "${CMAKE_${lang}_FLAGS_RELWITHDEBINFO} /MT")
+    set(CMAKE_${lang}_FLAGS_MINSIZEREL "${CMAKE_${lang}_FLAGS_MINSIZEREL} /MT")
+  endforeach()
 endif()
 
 # ---- WCDB (FetchContent) ----
