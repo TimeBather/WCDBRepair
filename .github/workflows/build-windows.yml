@@ -37,7 +37,8 @@ jobs:
           }
           Write-Host "== Patched snippet: SQLiteAssembler.cpp (quoted column names) =="
           if (Test-Path $assembler) {
-            Select-String -Path $assembler -Pattern "firstHalfStream << \", \\\"\" << columnName" -Context 2,2 | ForEach-Object { $_.ToString() }
+            # Match literal `, \"` which only exists after patching (C++ string escaping).
+            Select-String -Path $assembler -SimpleMatch -Pattern ', \"' -Context 2,2 | ForEach-Object { $_.ToString() }
           } else {
             Write-Host "File not found: $assembler"
           }
