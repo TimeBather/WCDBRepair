@@ -1,0 +1,76 @@
+name: build-windows
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure (Release)
+        run: >
+          cmake -S . -B build
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=cl
+          -DCMAKE_CXX_COMPILER=cl
+
+      - name: Show patched WCDB files (snippets)
+        shell: pwsh
+        run: |
+          $basic = "build/_deps/wcdb-src/src/common/core/CommonCore.cpp"
+          $assembler = "build/_deps/wcdb-src/src/common/repair/sqlite/SQLiteAssembler.cpp"
+          $assembleOp = "build/_deps/wcdb-src/src/common/core/assemble/AssembleHandleOperator.cpp"
+          Write-Host "== Patched snippet: CommonCore.cpp (BasicConfigName) =="
+          if (Test-Path $basic) {
+            Select-String -Path $basic -Pattern "BasicConfigName" -Context 2,2 | ForEach-Object { $_.ToString() }
+          } else {
+            Write-Host "File not found: $basic"
+          }
+          Write-Host "== Patched snippet: SQLiteAssembler.cpp (quoted column names) =="
+          if (Test-Path $assembler) {
+            # Match literal `, \"` which only exists after patching (C++ string escaping).
+            Select-String -Path $assembler -SimpleMatch -Pattern ', \"' -Context 2,2 | ForEach-Object { $_.ToString() }
+          } else {
+            Write-Host "File not found: $assembler"
+          }
+          Write-Host "== Patched snippet: AssembleHandleOperator.cpp (quote Column(meta.name)) =="
+          if (Test-Path $assembleOp) {
+            Select-String -Path $assembleOp -SimpleMatch -Pattern 'StringView::formatted("\"%s\"", meta.name.data())' -Context 2,2 | ForEach-Object { $_.ToString() }
+          } else {
+            Write-Host "File not found: $assembleOp"
+          }
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force -Path "build/wcdb-repair.exe" -Destination "dist/wcdb-repair.exe"
+          Copy-Item -Force -Path "README.md" -Destination "dist/README.md"
+          # Include patched WCDB source files for verification
+          New-Item -ItemType Directory -Force -Path "dist/patched-wcdb/common/core" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/patched-wcdb/common/core/assemble" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/patched-wcdb/common/repair/sqlite" | Out-Null
+          Copy-Item -Force -Path "build/_deps/wcdb-src/src/common/core/CommonCore.cpp" -Destination "dist/patched-wcdb/common/core/CommonCore.cpp"
+          Copy-Item -Force -Path "build/_deps/wcdb-src/src/common/core/assemble/AssembleHandleOperator.cpp" -Destination "dist/patched-wcdb/common/core/assemble/AssembleHandleOperator.cpp"
+          Copy-Item -Force -Path "build/_deps/wcdb-src/src/common/repair/sqlite/SQLiteAssembler.cpp" -Destination "dist/patched-wcdb/common/repair/sqlite/SQLiteAssembler.cpp"
+          Compress-Archive -Force -Path "dist/*" -DestinationPath "wcdb-repair-windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wcdb-repair-windows
+          path: wcdb-repair-windows.zip
+
