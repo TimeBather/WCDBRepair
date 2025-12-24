@@ -67,6 +67,20 @@ if (EXISTS "${_wcdb_sqlite_assembler_cpp}")
   endif()
 endif()
 
+# ---- Patch WCDB retrieve path on Windows (AssembleHandleOperator) ----
+# Newer WCDB uses AssembleHandleOperator + WINQ StatementInsert to assemble INSERT SQL.
+# Column(meta.name) will emit raw identifiers; numeric column names must be quoted.
+set(_wcdb_assemble_op_cpp "${wcdb_SOURCE_DIR}/src/common/core/assemble/AssembleHandleOperator.cpp")
+if (EXISTS "${_wcdb_assemble_op_cpp}")
+  file(READ "${_wcdb_assemble_op_cpp}" _wcdb_assemble_op_content)
+  set(_wcdb_assemble_op_old "        columns.push_back(Column(meta.name));")
+  set(_wcdb_assemble_op_new "        columns.push_back(Column(StringView::formatted(\"\\\"%s\\\"\", meta.name.data())));")
+  string(REPLACE "${_wcdb_assemble_op_old}" "${_wcdb_assemble_op_new}" _wcdb_assemble_op_patched "${_wcdb_assemble_op_content}")
+  if (NOT _wcdb_assemble_op_patched STREQUAL _wcdb_assemble_op_content)
+    file(WRITE "${_wcdb_assemble_op_cpp}" "${_wcdb_assemble_op_patched}")
+  endif()
+endif()
+
 # WCDB's CMake entry is under src/
 add_subdirectory("${wcdb_SOURCE_DIR}/src" "${wcdb_BINARY_DIR}/wcdb-src")
 
