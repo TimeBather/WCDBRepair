@@ -52,6 +52,21 @@ if (EXISTS "${_wcdb_commoncore_cpp}")
   endif()
 endif()
 
+# ---- Patch WCDB builtin repair (quote numeric column names) ----
+# WCDB builtin repair builds INSERT SQL from PRAGMA table_info column names.
+# If column names are numeric strings (e.g. "40001"), SQLite requires quoting
+# the identifier, otherwise the INSERT will fail with SQLITE_ERROR.
+set(_wcdb_sqlite_assembler_cpp "${wcdb_SOURCE_DIR}/src/common/repair/sqlite/SQLiteAssembler.cpp")
+if (EXISTS "${_wcdb_sqlite_assembler_cpp}")
+  file(READ "${_wcdb_sqlite_assembler_cpp}" _wcdb_sqlite_assembler_content)
+  set(_wcdb_sqlite_assembler_old "        firstHalfStream << \", \" << columnName;")
+  set(_wcdb_sqlite_assembler_new "        firstHalfStream << \", \\\"\" << columnName << \"\\\"\";")
+  string(REPLACE "${_wcdb_sqlite_assembler_old}" "${_wcdb_sqlite_assembler_new}" _wcdb_sqlite_assembler_patched "${_wcdb_sqlite_assembler_content}")
+  if (NOT _wcdb_sqlite_assembler_patched STREQUAL _wcdb_sqlite_assembler_content)
+    file(WRITE "${_wcdb_sqlite_assembler_cpp}" "${_wcdb_sqlite_assembler_patched}")
+  endif()
+endif()
+
 # WCDB's CMake entry is under src/
 add_subdirectory("${wcdb_SOURCE_DIR}/src" "${wcdb_BINARY_DIR}/wcdb-src")
 
